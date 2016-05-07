@@ -2,12 +2,23 @@ import csv
 import numpy
 import pandas
 
-from itertools import combinations
+from itertools import combinations, repeat
+from multiprocessing import cpu_count, Manager, Pool
 from sklearn import preprocessing
 
 
 def members_as_list(team):
     return [team['1'], team['2'], team['3'], team['4'], team['5']]
+
+
+def eval_combo(heroes, normed_data, avg_power):
+    # teams with this hero present
+    exp = (' & ').join('({})'.format(h) for h in heroes)
+    teams = normed_data.query(exp)['power']
+    if len(teams) > 10:
+        power = teams.mean()
+        count = teams.count()
+        avg_power.append({'heroes': ','.join(h for h in sorted(heroes)), 'avg_rel_power': int(power), 'count': count})
 
 
 def main():
@@ -55,18 +66,19 @@ def main():
         normed_data.columns = [c.replace(' ', '_') for c in normed_data.columns]
         all_heroes = [c.replace(' ', '_') for c in all_heroes]
 
+        # multiprocessing manager
+        manager = Manager()
+        pool = Pool(processes=cpu_count())
+
         subset_sizes = [1, 2, 3, 4, 5]
         for subset_size in subset_sizes:
-            avg_power = []
-            # iterates over all combinations of a team for a given size
-            for heroes in combinations(all_heroes, subset_size):
-                # teams with this hero present
-                exp = (' & ').join('({})'.format(h) for h in heroes)
-                teams = normed_data.query(exp)['power']
-                if len(teams) > 10:
-                    power = teams.mean()
-                    count = teams.count()
-                    avg_power.append({'heroes': ','.join(h for h in sorted(heroes)), 'avg_rel_power': int(power), 'count': count})
+            avg_power = manager.list()
+            # iterates over all combinations of a team for a given size using
+            # all processors
+            pool.starmap(
+                eval_combo,
+                zip(combinations(all_heroes, subset_size), repeat(normed_data), repeat(avg_power)),
+                chunksize=1000)
 
             with open('team_size{}.csv'.format(subset_size), 'w') as csvfile:
                 fieldnames = ['heroes', 'avg_rel_power', 'count']
