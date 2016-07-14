@@ -6,19 +6,29 @@ from itertools import combinations, repeat
 from multiprocessing import cpu_count, Manager, Pool
 from sklearn import preprocessing
 
+PAID_HEROES = frozenset(
+    ['Ariel', 'Charon', 'Lilith', 'Monk_Sun', 'Rams', 'Robin',
+     'Saizo', 'Smoke', 'Theresa'])  # Leon should be included but things blow up when he is??
+
 
 def members_as_list(team):
     return [team['1'], team['2'], team['3'], team['4'], team['5']]
 
 
-def eval_combo(heroes, normed_data, avg_power):
+def eval_combo(heroes, normed_data, avg_power, f2p=False):
     # teams with this hero present
     exp = (' & ').join('({})'.format(h) for h in heroes)
+    if f2p:
+        exp = '{} & {}'.format(exp, (' & ').join('~{}'.format(h) for h in PAID_HEROES))
     teams = normed_data.query(exp)['power']
-    if len(teams) > 10:
+    if len(teams) > 0:
         power = teams.mean()
         count = teams.count()
-        avg_power.append({'heroes': ','.join(h for h in sorted(heroes)), 'avg_rel_power': int(power), 'count': count})
+        if len(teams) > 1:
+            stddev = teams.std()
+        else:
+            stddev = 0
+        avg_power.append({'heroes': ','.join(h for h in sorted(heroes)), 'avg_rel_power': int(power), 'stddev': int(stddev), 'count': count})
 
 
 def main():
@@ -64,11 +74,12 @@ def main():
 
         # spaces seem to anger pandas query command
         normed_data.columns = [c.replace(' ', '_') for c in normed_data.columns]
-        all_heroes = [c.replace(' ', '_') for c in all_heroes]
+        all_heroes = {c.replace(' ', '_') for c in all_heroes}
+        f2p_heroes = all_heroes.difference(PAID_HEROES)
 
         # multiprocessing manager
         manager = Manager()
-        pool = Pool(processes=cpu_count())
+        pool = Pool(processes=6)
 
         subset_sizes = [1, 2, 3, 4, 5]
         for subset_size in subset_sizes:
@@ -77,11 +88,26 @@ def main():
             # all processors
             pool.starmap(
                 eval_combo,
-                zip(combinations(all_heroes, subset_size), repeat(normed_data), repeat(avg_power)),
+                zip(combinations(all_heroes, subset_size), repeat(normed_data), repeat(avg_power), repeat(False)),
                 chunksize=1000)
 
             with open('team_size{}.csv'.format(subset_size), 'w') as csvfile:
-                fieldnames = ['heroes', 'avg_rel_power', 'count']
+                fieldnames = ['heroes', 'avg_rel_power', 'stddev', 'count']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                # write out sorted by power
+                writer.writerows(sorted(avg_power, key=lambda k: k['avg_rel_power'], reverse=True))
+
+            # F2P
+            avg_power = manager.list()
+            # remove paid heros
+            pool.starmap(
+                eval_combo,
+                zip(combinations(f2p_heroes, subset_size), repeat(normed_data), repeat(avg_power), repeat(True)),
+                chunksize=1000)
+
+            with open('f2p_team_size{}.csv'.format(subset_size), 'w') as csvfile:
+                fieldnames = ['heroes', 'avg_rel_power', 'stddev', 'count']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
                 # write out sorted by power
