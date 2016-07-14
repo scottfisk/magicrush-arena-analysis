@@ -3,12 +3,12 @@ import numpy
 import pandas
 
 from itertools import combinations, repeat
-from multiprocessing import cpu_count, Manager, Pool
+from multiprocessing import Manager, Pool
 from sklearn import preprocessing
 
 PAID_HEROES = frozenset(
-    ['Ariel', 'Charon', 'Lilith', 'Monk_Sun', 'Rams', 'Robin',
-     'Saizo', 'Smoke', 'Theresa'])  # Leon should be included but things blow up when he is??
+    ['ariel', 'charon', 'lilith', 'monk_sun', 'rams', 'robin',
+     'saizo', 'smoke', 'theresa', 'edwin'])
 
 
 def members_as_list(team):
@@ -20,7 +20,7 @@ def eval_combo(heroes, normed_data, avg_power, f2p=False):
     exp = (' & ').join('({})'.format(h) for h in heroes)
     if f2p:
         exp = '{} & {}'.format(exp, (' & ').join('~{}'.format(h) for h in PAID_HEROES))
-    teams = normed_data.query(exp)['power']
+    teams = normed_data.query(exp)['relative_power']
     if len(teams) > 0:
         power = teams.mean()
         count = teams.count()
@@ -45,9 +45,10 @@ def main():
         formatted_data = []
         for team in data:
             formatted_team = {
-                'server': team['Server'],
-                'rank': int(team['Rank']),
-                'power': int(team['Power'])
+                'server': team['server'],
+                'rank': int(team['rank']),
+                'power': int(team['power']),
+                'relative_power': int(team['relative_power'])
             }
             [formatted_team.update({hero: hero in members_as_list(team)}) for hero in all_heroes]
             formatted_data.append(formatted_team)
@@ -67,9 +68,9 @@ def main():
             # get distance
             relative_power = yfit - y
             # save
-            server_data['power'] = relative_power
+            # not currently using this relative power
+            server_data['relative_power_calculated'] = relative_power
             frames.append(server_data)
-
         normed_data = pandas.concat(frames)
 
         # spaces seem to anger pandas query command
